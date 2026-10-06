@@ -1,0 +1,124 @@
+<!doctype html>
+<!-- Synthetic chat page that mimics the muse.ai structure seen in `npm run discover` (2026-10-05):
+     message items with data-message-role / data-message-turn-id, a typing indicator, the composer Stop
+     action, data-hatch-markdown-streaming, and data-copy-exclude page UI. It exercises the bridge's
+     completion logic; real markup is tested separately against muse-real-turns.html. -->
+<html><body>
+<div style="height:300px;overflow:auto" id="scroller">
+  <div role="log" aria-label="Chat messages" id="log"></div>
+</div>
+<div data-hatch-composer-input-row="true">
+  <textarea aria-label="Message"></textarea>
+  <div data-hatch-composer-action-slot="true" id="actions"></div>
+</div>
+<script>
+  window.scenario = "normal";
+  const log = document.getElementById("log");
+  const actions = document.getElementById("actions");
+  const ta = document.querySelector("textarea");
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let stopped = false;
+  let seq = 0;
+
+  // Send only exists while the composer has text, like the real one.
+  const send = document.createElement("button");
+  send.setAttribute("aria-label", "Send");
+  ta.addEventListener("input", () => (ta.value ? actions.appendChild(send) : send.remove()));
+  const stopWrap = document.createElement("div");
+  stopWrap.setAttribute("data-hatch-composer-action", "stop");
+  stopWrap.innerHTML = '<button aria-label="Stop">■</button>';
+  stopWrap.firstChild.onclick = () => { stopped = true; };
+
+  const ui = '<div data-copy-exclude="true"><button aria-label="React"></button><button aria-label="Copy response"></button></div>';
+  function userMsg(text) {
+    const d = document.createElement("div");
+    const id = "u-" + ++seq;
+    Object.assign(d.dataset, { messageItem: "true", messageRole: "user", messageTurnId: id, messageId: id });
+    d.innerHTML = '<div aria-busy="false"><span data-copy-exclude="true">You:</span><p></p></div>' + ui;
+    d.querySelector("p").textContent = text;
+    log.appendChild(d);
+  }
+  function typing() {
+    const d = document.createElement("div");
+    d.setAttribute("data-message-item", "true");
+    d.setAttribute("data-testid", "hatch-chat-typing-indicator");
+    d.setAttribute("role", "status");
+    d.setAttribute("aria-label", "Assistant is typing");
+    log.appendChild(d);
+    return d;
+  }
+  function assistantMsg(turnId) {
+    const d = document.createElement("div");
+    Object.assign(d.dataset, { messageItem: "true", messageRole: "assistant", messageTurnId: turnId, messageId: "a-" + ++seq });
+    d.innerHTML = '<div data-hatch-assistant-message-body="true"><div data-hatch-markdown-streaming="true"><p></p></div></div>' + ui;
+    log.appendChild(d);
+    return d;
+  }
+  async function stream(msg, words, delay) {
+    const p = msg.querySelector("p");
+    for (const w of words) { if (stopped) break; p.textContent += (p.textContent ? " " : "") + w; await sleep(delay); }
+    msg.querySelector("[data-hatch-markdown-streaming]").setAttribute("data-hatch-markdown-streaming", "false");
+  }
+
+  send.onclick = async () => {
+    const prompt = ta.value; ta.value = ""; send.remove();
+    userMsg(prompt);
+    const s = window.scenario; stopped = false;
+    if (s === "noIndicator") {
+      await sleep(300);
+      const d = assistantMsg("t-" + seq);
+      d.querySelector("p").textContent = "instant answer";
+      d.querySelector("[data-hatch-markdown-streaming]").setAttribute("data-hatch-markdown-streaming", "false");
+      return;
+    }
+    actions.appendChild(stopWrap);
+    const ind = typing();
+    // Like the real site: the composer Stop can disappear before the reply text shows up.
+    await sleep(400);
+    if (s === "earlyStopGone") { stopWrap.remove(); await sleep(1500); }
+    if (s === "stoppedNoReply") { await sleep(500); ind.remove(); stopWrap.remove(); return; }
+    ind.remove();
+    const turnId = "t-" + seq;
+    const a = assistantMsg(turnId);
+    if (s === "normal" || s === "earlyStopGone") await stream(a, ["reply", "to:", prompt], 100);
+    if (s === "thinkPause") { await stream(a, ["thinking"], 50); a.querySelector("[data-hatch-markdown-streaming]").setAttribute("data-hatch-markdown-streaming", "true"); await sleep(3500); await stream(a, ["done"], 50); }
+    if (s === "multiPart") {
+      await stream(a, ["part", "one"], 80);
+      const b = assistantMsg(turnId);
+      await stream(b, ["part", "two"], 80);
+    }
+    if (s === "agentTask") {
+      // Text finishes and the composer Stop goes away, but the agent keeps working ("Stop task") and then adds
+      // a second message to the same turn, as Muse does when it runs a tool after answering.
+      const task = document.createElement("button");
+      task.setAttribute("aria-label", "Stop task");
+      document.body.appendChild(task);
+      await stream(a, ["checking"], 50);
+      stopWrap.remove();
+      await sleep(2500);
+      const b = assistantMsg(turnId);
+      await stream(b, ["result"], 50);
+      task.remove();
+    }
+    if (s === "agentLongTask") {
+      // The text is done, but the agent keeps "Stop task" up far longer than any reply wait should last.
+      const task = document.createElement("button");
+      task.setAttribute("aria-label", "Stop task");
+      document.body.appendChild(task);
+      await stream(a, ["answer"], 50);
+      stopWrap.remove();
+      await sleep(30000);
+      task.remove();
+    }
+    if (s === "slow") await stream(a, Array.from({ length: 200 }, (_, i) => "w" + i), 100);
+    if (s === "error") {
+      await stream(a, ["partial"], 50);
+      a.querySelector("[data-hatch-markdown-streaming]").setAttribute("data-hatch-markdown-streaming", "true");
+      const al = document.createElement("div"); al.setAttribute("role", "alert"); al.textContent = "Network connection lost";
+      document.body.appendChild(al);
+      await sleep(10000);
+    }
+    stopWrap.remove();
+  };
+</script>
+</body></html>
