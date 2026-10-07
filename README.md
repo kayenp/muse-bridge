@@ -131,6 +131,11 @@ Sends are queued and run one at a time, so concurrent calls never mix their prom
 
 ### When a reply counts as finished
 
+The reply is every assistant message after your prompt's own message, up to the next user message. The bridge
+finds that message by its text: it must be the newest user message and new since the send. It never counts
+messages, so chat history that renders late on a freshly loaded page can't pass for the reply. On a page loaded
+moments ago, the bridge also waits for the history to stop rendering before it sends.
+
 Text that is still arriving keeps the wait open. That means the typing placeholder before the reply has any text,
 or the reply's own markdown flagged as streaming. Text pauses don't end the wait while either is showing. Streaming
 flags on older replies are ignored.
@@ -146,6 +151,9 @@ If the reply's markdown stays flagged as streaming but its text hasn't changed f
 as stuck. It returns the text with a `warning` that it may be incomplete.
 
 If no streaming signal is ever seen, the bridge falls back to "text unchanged for 3 s" and adds a `warning`.
+
+A reply with no readable text (only a card, image or attachment) finishes once everything has been idle for 5 s,
+with an empty text and a `warning`.
 
 Every finished reply is logged with which signals were showing, the text length and how long the text had held
 still. Logs never contain the text itself. A `TIMEOUT` logs the same details and takes a debug screenshot before

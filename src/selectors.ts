@@ -48,6 +48,11 @@ const defaults = {
 
 /** Messages belonging to one reply share this attribute. */
 export const TURN_ID_ATTR = "data-message-turn-id";
+/** Unique per message, user and assistant alike. */
+export const MESSAGE_ID_ATTR = "data-message-id";
+
+/** A CSS attribute-selector value, quoted. */
+export const cssString = (v: string) => '"' + v.replace(/["\\]/g, "\\$&") + '"';
 
 export type SelectorKey = keyof typeof defaults;
 

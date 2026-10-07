@@ -5,7 +5,7 @@ import { chromiumLaunch } from "../../src/browser.js";
 import { load } from "./load.js";
 import { chromium, type Browser, type Page } from "playwright";
 import { BridgeError } from "../../src/errors.js";
-import { sendAndWait } from "../../src/reply.js";
+import { matchesPrompt, sendAndWait } from "../../src/reply.js";
 
 const html = readFileSync(new URL("../../../test/fixtures/fake-chat.html", import.meta.url), "utf8");
 let browser: Browser;
@@ -143,4 +143,32 @@ test("an older reply left flagged as streaming does not hold up the new one", as
   });
   const out = await sendAndWait(page, "hello", opts);
   assert.equal(out.text, "reply to: hello");
+});
+
+test("chat history that renders after the send is not mistaken for the reply", async () => {
+  await scenario("lateHistory");
+  const out = await sendAndWait(page, "hello", opts);
+  assert.equal(out.text, "reply to: hello");
+});
+
+test("late history holding the same prompt does not pass for the new one", async () => {
+  await scenario("lateHistorySamePrompt");
+  const out = await sendAndWait(page, "hello", opts);
+  assert.equal(out.text, "reply to: hello");
+});
+
+test("a reply with no readable text finishes with a warning instead of timing out", async () => {
+  await scenario("cardOnly");
+  const t0 = Date.now();
+  const out = await sendAndWait(page, "x", opts);
+  assert.equal(out.text, "");
+  assert.match(out.warning ?? "", /no readable text/);
+  assert.ok(Date.now() - t0 < 10_000);
+});
+
+test("prompt matching ignores markdown, spacing and a cut-short display", () => {
+  assert.ok(matchesPrompt("Reply with exactly: PONG", "Reply with *exactly*:\n  PONG"));
+  assert.ok(matchesPrompt("Critique this plan: Plan: muse-bridge", "Critique this plan: Plan: muse-bridge, with many more details after this"));
+  assert.ok(!matchesPrompt("hi", "hi there"), "a short prefix is too weak to count as a match");
+  assert.ok(!matchesPrompt("an older question", "hello"));
 });

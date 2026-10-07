@@ -37,6 +37,7 @@
     d.innerHTML = '<div aria-busy="false"><span data-copy-exclude="true">You:</span><p></p></div>' + ui;
     d.querySelector("p").textContent = text;
     log.appendChild(d);
+    return d;
   }
   function typing() {
     const d = document.createElement("div");
@@ -62,10 +63,37 @@
     msg.querySelector("[data-hatch-markdown-streaming]").setAttribute("data-hatch-markdown-streaming", "false");
   }
 
+  // Chat history that renders after the page looks ready, above everything already shown, as on a cold load.
+  // It starts with a card-only message (like Muse's "Tip" cards: all buttons, no readable text).
+  function lateHistory(oldPrompt) {
+    const first = log.firstChild;
+    const card = assistantMsg("h-card");
+    card.querySelector("[data-hatch-markdown-streaming]").setAttribute("data-hatch-markdown-streaming", "false");
+    card.querySelector("p").innerHTML = '<button>Go to Ideas</button><button>Customize your Feed</button>';
+    const user = userMsg(oldPrompt);
+    const old = assistantMsg("h-old");
+    old.querySelector("p").textContent = "old reply";
+    old.querySelector("[data-hatch-markdown-streaming]").setAttribute("data-hatch-markdown-streaming", "false");
+    for (const el of [card, user, old]) log.insertBefore(el, first);
+  }
+
   send.onclick = async () => {
     const prompt = ta.value; ta.value = ""; send.remove();
-    userMsg(prompt);
+    const sent = userMsg(prompt);
+    // Like the real site: the sent message first carries a client-side id, swapped for the server's once saved.
+    setTimeout(() => (sent.dataset.messageId = "server-" + sent.dataset.messageId), 500);
     const s = window.scenario; stopped = false;
+    if (s === "lateHistory") setTimeout(() => lateHistory("an older question"), 50);
+    if (s === "lateHistorySamePrompt") setTimeout(() => lateHistory(prompt), 50);
+    if (s === "cardOnly") {
+      actions.appendChild(stopWrap);
+      await sleep(400);
+      const d = assistantMsg("t-" + seq);
+      d.querySelector("p").innerHTML = '<button>Go to Ideas</button>';
+      d.querySelector("[data-hatch-markdown-streaming]").setAttribute("data-hatch-markdown-streaming", "false");
+      stopWrap.remove();
+      return;
+    }
     if (s === "noIndicator") {
       await sleep(300);
       const d = assistantMsg("t-" + seq);
@@ -82,7 +110,7 @@
     ind.remove();
     const turnId = "t-" + seq;
     const a = assistantMsg(turnId);
-    if (s === "normal" || s === "earlyStopGone") await stream(a, ["reply", "to:", prompt], 100);
+    if (["normal", "earlyStopGone", "lateHistory", "lateHistorySamePrompt"].includes(s)) await stream(a, ["reply", "to:", prompt], 100);
     if (s === "thinkPause") { await stream(a, ["thinking"], 50); a.querySelector("[data-hatch-markdown-streaming]").setAttribute("data-hatch-markdown-streaming", "true"); await sleep(3500); await stream(a, ["done"], 50); }
     if (s === "multiPart") {
       await stream(a, ["part", "one"], 80);
