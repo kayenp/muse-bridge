@@ -44,13 +44,9 @@ The bridge always uses this separate profile and never connects to your everyday
 Needs Node 20+ and Xvfb (`sudo apt install xvfb`). On WSL2 you also need WSLg, which is what shows the login window.
 Summaries need the `claude` CLI on `PATH` (or at `MUSE_CLAUDE_PATH`), logged in. No API key is needed.
 
-The browser is the local **ungoogled-chromium 148** at
-`~/applications/ungoogled-chromium-148/opt/ungoogled-chromium/chrome`. The bridge runs that binary directly, with
-the AppImage's `usr/lib` on `LD_LIBRARY_PATH` (which is all `AppRun` does), not Playwright's bundled Chromium.
-Set `MUSE_CHROMIUM_PATH` to use another build.
+The browser path is set with `MUSE_CHROMIUM_PATH`.
 
-Playwright 1.63 targets Chromium 153, so this build is five major versions behind. Everything the bridge uses works
-on 148: `goto`, clicks, `insertText`, `evaluate`, `waitForFunction`, screenshots, and close. `page.setContent`
+This build originally used Chromium 148 and the following is tested working: `goto`, clicks, `insertText`, `evaluate`, `waitForFunction`, screenshots, and close. `page.setContent`
 hangs, so the tests load fixtures through `data:` URLs instead. If you upgrade Playwright, rerun `npm test` and
 the offline test before trusting it.
 
@@ -196,12 +192,6 @@ If something breaks, rerun discovery. It snapshots automatically on UI changes a
 npm run discover   # output in ~/.muse-bridge/discovery/<timestamp>/
 ```
 
-To patch a selector without rebuilding:
-
-```bash
-MUSE_SELECTOR_OVERRIDES='{"stopButton":"button[aria-label=\"Stop\"]"}'
-```
-
 ## Environment
 
 | Var | Default | |
@@ -209,7 +199,6 @@ MUSE_SELECTOR_OVERRIDES='{"stopButton":"button[aria-label=\"Stop\"]"}'
 | `MUSE_DISPLAY` | `xvfb` | `xvfb` runs headed Chromium on a hidden display. `headless` is opt-in. `headed` shows the window on WSLg. |
 | `MUSE_CHROMIUM_PATH` | `~/applications/ungoogled-chromium-148/opt/ungoogled-chromium/chrome` | Chromium binary to drive. |
 | `MUSE_HOME` | `~/.muse-bridge` | Profile, logs (`bridge.log`), debug screenshots, discovery output, the summarizer's empty working folder, and `viewer-url` / `viewer-token`. Keep it outside any repo. |
-| `MUSE_SELECTOR_OVERRIDES` | — | JSON map of selector key to CSS. |
 | `MUSE_URL` | `https://muse.ai/` | Must be `https`. Facebook hosts are rejected. |
 | `MUSE_LOG_LEVEL` | `info` | Logs go to stderr and `bridge.log`, never stdout. |
 | `MUSE_CLAUDE_PATH` | `claude` | `claude` CLI used to summarize replies. |
