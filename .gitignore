@@ -1,6 +1,19 @@
 node_modules/
 dist/
 dist-test/
+coverage/
 
-
+# Secrets and local config
 .env
+.env.*
+!.env.example
+
+# Bridge state: never commit, even if MUSE_HOME points inside the repo
+.muse-bridge/
+profile/
+debug/
+discovery/
+*.log
+*.png
+
+.DS_Store

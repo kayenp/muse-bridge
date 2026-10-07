@@ -9,14 +9,17 @@ import { errorResult, newChat, readyPage, startLogin, status } from "./muse.js";
 import { createJob, currentJob, getJob, lock, waitFor, type Job, type JobResult } from "./queue.js";
 import { extractReply, sendAndWait } from "./reply.js";
 import { count, sel } from "./selectors.js";
+import { summarize } from "./summarize.js";
 import { readTranscript } from "./transcript.js";
-import { markUntrusted, UNTRUSTED_DESCRIPTION } from "./untrusted.js";
+import { stripRaw, toAgentResult, UNTRUSTED_DESCRIPTION } from "./untrusted.js";
+import { addEntry, startViewer, updateEntry } from "./viewer.js";
 
 const server = new McpServer({ name: "muse-bridge", version: "1.0.0" });
 
 type Result = Record<string, unknown>;
+// Results reaching here carry summaries, not page text; stripRaw is a backstop in case a raw field slips through.
 const reply = (r: Result) => ({
-  content: [{ type: "text" as const, text: JSON.stringify(markUntrusted(r), null, 2) }],
+  content: [{ type: "text" as const, text: JSON.stringify(stripRaw(r), null, 2) }],
   isError: r.status === "error",
 });
 
@@ -41,7 +44,7 @@ const locked = (fn: () => Promise<Result>): Promise<Result> => {
 
 function jobView(job: Job, r: JobResult | null): Result {
   if (r) return { job_id: job.id, ...r };
-  return { status: "pending", job_id: job.id, job_status: job.status, text_so_far: job.text || undefined };
+  return { status: "pending", job_id: job.id, job_status: job.status, chars_so_far: job.text.length || undefined };
 }
 
 server.registerTool(
@@ -61,6 +64,8 @@ server.registerTool(
     },
   },
   async ({ prompt, new_chat, wait_s = 45, job_timeout_s = 300, include_reasoning = false }) => {
+    const entry = addEntry("send", { prompt, streaming: true });
+    const present = (r: Result) => toAgentResult(r, { kind: "send", prompt, entry, summarize }) as Promise<JobResult>;
     const job = createJob(prompt, async (j) => {
       try {
         const page = await readyPage();
@@ -68,10 +73,13 @@ server.registerTool(
         const out = await sendAndWait(page, prompt, {
           timeoutMs: job_timeout_s * 1000,
           includeReasoning: include_reasoning,
-          onProgress: (t) => (j.text = t),
+          onProgress: (t) => {
+            j.text = t;
+            updateEntry(entry, { raw: t });
+          },
         });
         j.text = out.text;
-        return {
+        return present({
           status: "done",
           text: out.text,
           ...(out.warning ? { warning: out.warning } : {}),
@@ -81,9 +89,9 @@ server.registerTool(
                 note: "Muse is still working in the background; more messages may follow. Check later with muse_read_latest.",
               }
             : {}),
-        };
+        });
       } catch (err) {
-        return (await errorResult(err)) as JobResult;
+        return present(await errorResult(err));
       }
     });
     return reply(jobView(job, await waitFor(job, wait_s * 1000)));
@@ -107,36 +115,44 @@ server.registerTool(
   "muse_read_latest",
   {
     description:
-      "Read the most recent Muse reply. While a send is in progress, returns that reply's partial text." +
+      "Summarize the most recent Muse reply. While a send is in progress, returns its progress only; " +
+      "call muse_wait for the summary." +
       UNTRUSTED_DESCRIPTION,
     inputSchema: { include_reasoning: z.boolean().optional() },
   },
   async ({ include_reasoning = false }) => {
     const job = currentJob();
-    if (job) return reply({ status: "pending", job_id: job.id, partial: true, text: job.text });
-    return reply(
-      await locked(async () => {
-        const page = await readyPage();
-        if ((await count(page, "assistantTurn")) === 0) return { status: "done", text: "", note: "No replies in this chat yet." };
-        return { status: "done", text: await extractReply(page, page.locator(sel.assistantTurn).last(), include_reasoning) };
-      }),
-    );
+    if (job) {
+      return reply({
+        status: "pending",
+        job_id: job.id,
+        chars_so_far: job.text.length,
+        note: "Reply still streaming. Call muse_wait with job_id for the summary.",
+      });
+    }
+    const r = await locked(async () => {
+      const page = await readyPage();
+      if ((await count(page, "assistantTurn")) === 0) return { status: "done", note: "No replies in this chat yet." };
+      return { status: "done", text: await extractReply(page, page.locator(sel.assistantTurn).last(), include_reasoning) };
+    });
+    return reply(await toAgentResult(r, { kind: "latest", summarize }));
   },
 );
 
 server.registerTool(
   "muse_read_transcript",
   {
-    description: "Read the recent turns of the current Muse chat as [{role, text}], oldest first." + UNTRUSTED_DESCRIPTION,
+    description: "Summarize the recent turns of the current Muse chat, oldest first." + UNTRUSTED_DESCRIPTION,
     inputSchema: { limit: z.number().int().min(1).max(500).optional(), include_reasoning: z.boolean().optional() },
   },
-  async ({ limit = 20, include_reasoning = false }) =>
-    reply(
-      await locked(async () => {
-        const page = await readyPage();
-        return { status: "done", turns: await readTranscript(page, limit, include_reasoning) };
-      }),
-    ),
+  async ({ limit = 20, include_reasoning = false }) => {
+    const r = await locked(async () => {
+      const page = await readyPage();
+      const turns = await readTranscript(page, limit, include_reasoning);
+      return { status: "done", turn_count: turns.length, turns };
+    });
+    return reply(await toAgentResult(r, { kind: "transcript", summarize }));
+  },
 );
 
 server.registerTool(
@@ -181,6 +197,7 @@ server.registerTool(
 process.on("unhandledRejection", (err) => log.error({ err }, "unhandled rejection"));
 process.stdin.on("close", () => void closeBrowser().finally(() => process.exit(0)));
 
+startViewer();
 await server.connect(new StdioServerTransport());
 log.info("muse-bridge MCP server ready");
 

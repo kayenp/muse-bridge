@@ -76,3 +76,9 @@ export function extractTurnText(el: Element, o: ExtractOptions): string {
     holder.remove();
   }
 }
+
+/**
+ * Script that installs extractTurnText as window.__museExtract, for callbacks that read many elements in one
+ * evaluateAll (they can't take a function argument). Re-run after every navigation.
+ */
+export const injectExtract = `window.__museExtract = ${extractTurnText.toString()}`;

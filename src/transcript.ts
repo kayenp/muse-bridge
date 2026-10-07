@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Page } from "playwright";
-import { extractTurnText } from "./extract.js";
+import { extractTurnText, injectExtract } from "./extract.js";
 import { sel, TURN_ID_ATTR } from "./selectors.js";
 
 export interface Turn {
@@ -48,7 +48,7 @@ async function visibleTurns(page: Page, includeReasoning: boolean): Promise<Seen
  * step by step to bring them back, merge by stable key, then scroll back to the bottom.
  */
 export async function readTranscript(page: Page, limit: number, includeReasoning = false): Promise<Turn[]> {
-  await page.evaluate(`window.__museExtract = ${extractTurnText.toString()}`);
+  await page.evaluate(injectExtract);
 
   let all = await visibleTurns(page, includeReasoning);
   // The message column itself may not scroll; tag its nearest scrollable ancestor so we can drive that.
