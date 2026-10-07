@@ -44,13 +44,9 @@ The bridge always uses this separate profile and never connects to your everyday
 Needs Node 20+ and Xvfb (`sudo apt install xvfb`). On WSL2 you also need WSLg, which is what shows the login window.
 Summaries need the `claude` CLI on `PATH` (or at `MUSE_CLAUDE_PATH`), logged in. No API key is needed.
 
-The browser is the local **ungoogled-chromium 148** at
-`~/applications/ungoogled-chromium-148/opt/ungoogled-chromium/chrome`. The bridge runs that binary directly, with
-the AppImage's `usr/lib` on `LD_LIBRARY_PATH` (which is all `AppRun` does), not Playwright's bundled Chromium.
-Set `MUSE_CHROMIUM_PATH` to use another build.
+The browser path is set with `MUSE_CHROMIUM_PATH`.
 
-Playwright 1.63 targets Chromium 153, so this build is five major versions behind. Everything the bridge uses works
-on 148: `goto`, clicks, `insertText`, `evaluate`, `waitForFunction`, screenshots, and close. `page.setContent`
+This build originally used Chromium 148 and the following is tested working: `goto`, clicks, `insertText`, `evaluate`, `waitForFunction`, screenshots, and close. `page.setContent`
 hangs, so the tests load fixtures through `data:` URLs instead. If you upgrade Playwright, rerun `npm test` and
 the offline test before trusting it.
 
@@ -197,63 +193,13 @@ If something breaks, rerun discovery. It snapshots automatically on UI changes a
 npm run discover   # output in ~/.muse-bridge/discovery/<timestamp>/
 ```
 
-To patch a selector without rebuilding:
-
-```bash
-MUSE_SELECTOR_OVERRIDES='{"stopButton":"button[aria-label=\"Stop\"]"}'
-```
-
-### Getting code out of Muse
-
-Summaries describe code rather than copying it, so code Muse writes needs its own path out. It is the one place
-Muse-written text deliberately leaves the viewer, so every step is narrow and fails closed:
-
-1. **Export.** `muse_export_code` takes a `reply_id`, a bridge-assigned number (the `#N` shown in the viewer),
-   never anything Muse wrote. It reads the reply's own code blocks off the page, not fences parsed out of text,
-   and no prose. Each block is written to `~/.muse-bridge/exports/<time>-r<N>-<random>/block-NN.<ext>`
-   (owner-only), with a `manifest.json`. File names are assigned by the bridge. A path Muse suggests in a
-   first-line comment (`# path: src/x.py`) is only recorded, and only if it is a safe relative path. The tool
-   returns metadata (names, languages, line counts, sizes, SHA-256), never the code. It refuses, writing
-   nothing, if the reply's chat isn't open, a code block is nested, there is no code, or there is too much
-   (50 blocks, 256 KB per block, 2 MB in total). Exporting the same reply again reuses the earlier folder.
-   Exports older than 30 days are deleted the next time something is exported (only folders the bridge made).
-   The viewer shows a "Code export" entry with each file's exact code under a header with its name and hash.
-2. **Review in isolation.** `npm run review-export -- <export_dir>` gives the code to a tool-less `claude -p`
-   (the same lockdown as the summarizer) and checks that every finding quotes the code verbatim. It prints
-   counts only. The findings, which quote untrusted code, go to `review.md` / `review.json` in the export
-   folder, for you.
-3. **Run only in the sandbox.** `npm run sandbox-run -- <export_dir> [--ro PATH]... [--timeout S] [--no-scope-limits] -- <command>`
-   writes the verified export into a throwaway folder and runs the command under bubblewrap: no network, an
-   empty environment (`PATH`, `HOME=/work`, `LANG` only), the system read-only, no home folder, a private
-   `/tmp`, and a time limit (120 s by default). Limits apply to the whole process tree through a systemd user
-   scope (256 tasks, so a fork bomb stops; 4 GB of memory with swap off) and to each process through `prlimit`
-   (4 GB address space, 256 MB per file written, 1024 open files, no core dumps). It reports one of: the
-   command's exit code (a crash shows as 128 + the signal, e.g. `139 (SIGSEGV)`), timed out, killed by a limit,
-   or "failed to start" (exit 2: the sandbox couldn't set up, e.g. a missing `--ro` path, so the command never
-   ran). Without a systemd user session, `--no-scope-limits` runs with the per-process limits only. Tools outside `/usr`, such as an nvm Node install, need `--ro <dir>`. It prints
-   the exit code and a line count; the output goes to `sandbox-<time>.log` in the export folder. Both scripts
-   refuse to run if an exported file changed since export.
-4. **You approve the diff.** Copying exported files into a project is an ordinary change you review before
-   anything is committed. That review is the real gate; the steps above make it smaller and better informed.
-
-Running tests is code execution, not just reading: never run exported code outside `sandbox-run`. Requires
-`bwrap` (bubblewrap), `prlimit`, unprivileged user namespaces and, unless you pass `--no-scope-limits`, a
-systemd user session (`systemd-run --user`). Both scripts read export files only if they are regular files
-(no symlinks, pipes or devices) and still match their export hash.
-
-Keeping Muse's code out of the agent's context is a policy, not a mechanism. The tool returns the export folder's
-path, and an agent with shell access can read the files, `review.md` or a sandbox log on purpose; the scripts only
-make sure it never has to. What the bridge guarantees is that Muse's text never arrives unasked in a tool result.
-Keep shell commands behind approval if that matters to you, and treat your diff review as the real gate.
-
 ## Environment
 
 | Var | Default | |
 |---|---|---|
 | `MUSE_DISPLAY` | `xvfb` | `xvfb` runs headed Chromium on a hidden display. `headless` is opt-in. `headed` shows the window on WSLg. |
 | `MUSE_CHROMIUM_PATH` | `~/applications/ungoogled-chromium-148/opt/ungoogled-chromium/chrome` | Chromium binary to drive. |
-| `MUSE_HOME` | `~/.muse-bridge` | Profile, logs (`bridge.log`), debug screenshots, discovery output, the summarizer's empty working folder, `exports/`, and `viewer-url` / `viewer-token`. Keep it outside any repo. |
-| `MUSE_SELECTOR_OVERRIDES` | — | JSON map of selector key to CSS. |
+| `MUSE_HOME` | `~/.muse-bridge` | Profile, logs (`bridge.log`), debug screenshots, discovery output, the summarizer's empty working folder, and `viewer-url` / `viewer-token`. Keep it outside any repo. |
 | `MUSE_URL` | `https://muse.ai/` | Must be `https`. Facebook hosts are rejected. |
 | `MUSE_LOG_LEVEL` | `info` | Logs go to stderr and `bridge.log`, never stdout. |
 | `MUSE_CLAUDE_PATH` | `claude` | `claude` CLI used to summarize replies. |
