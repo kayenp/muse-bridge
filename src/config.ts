@@ -41,6 +41,8 @@ export const config = {
   viewerPort: Number(process.env.MUSE_VIEWER_PORT ?? 7391),
   viewerUrlFile: join(home, "viewer-url"),
   viewerTokenFile: join(home, "viewer-token"),
+  /** Code exported from Muse replies (muse_export_code), one owner-only folder per export. */
+  exportsDir: join(home, "exports"),
 };
 
 /** Owner-only mode for files the bridge writes (logs, screenshots, page dumps). */
@@ -52,7 +54,7 @@ export const PRIVATE_FILE_MODE = 0o600;
  * re-parented dir doesn't silently become readable.
  */
 export function ensureDirs(): void {
-  for (const dir of [config.home, config.profileDir, config.debugDir, config.discoveryDir, config.summarizerDir]) {
+  for (const dir of [config.home, config.profileDir, config.debugDir, config.discoveryDir, config.summarizerDir, config.exportsDir]) {
     mkdirSync(dir, { recursive: true });
     chmodSync(dir, 0o700);
   }

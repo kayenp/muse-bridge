@@ -14,6 +14,11 @@ export type ErrorCode =
   | "TIMEOUT"
   | "PROFILE_IN_USE"
   | "SUMMARY_FAILED"
+  | "UNKNOWN_REPLY"
+  | "REPLY_NOT_ON_PAGE"
+  | "NO_CODE"
+  | "EXPORT_AMBIGUOUS"
+  | "EXPORT_TOO_LARGE"
   | "INTERNAL";
 
 export class BridgeError extends Error {

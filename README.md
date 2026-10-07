@@ -70,9 +70,10 @@ before running `npm run login`, `npm run smoke`, or `npm run discover`.
 
 | Tool | What it does |
 |---|---|
-| `muse_send` | Sends a prompt. It waits up to `wait_s` (default 45 s) and then returns `done` with a summary of the reply, or `pending` with a `job_id`. Optional `new_chat`, `job_timeout_s` (default 300), `include_reasoning`. |
+| `muse_send` | Sends a prompt. It waits up to `wait_s` (default 45 s) and then returns `done` with a summary of the reply and a `reply_id`, or `pending` with a `job_id`. Optional `new_chat`, `job_timeout_s` (default 300), `include_reasoning`. |
 | `muse_wait` | Keeps waiting on a pending `job_id`. |
-| `muse_read_latest` | Summarizes the last reply. While a reply is still streaming, it returns only `chars_so_far`. |
+| `muse_read_latest` | Summarizes the last reply and returns its `reply_id`. While a reply is still streaming, it returns only `chars_so_far`. |
+| `muse_export_code` | Writes the code blocks of one reply (by `reply_id`) to files and returns only metadata. See [Getting code out of Muse](#getting-code-out-of-muse). |
 | `muse_read_transcript` | Summarizes recent turns, scrolling up to load older ones if the page has unloaded them. |
 | `muse_new_chat` | Starts an empty chat and checks that it really is empty. |
 | `muse_status` | Returns `session`, `busy`, `queue_depth`, `current_job`, and `url`. It never waits behind the queue. |
@@ -213,7 +214,7 @@ Under WSLg, the bridge's Xvfb uses display `:99` or higher on an abstract socket
 ## Tests
 
 ```bash
-npm test                                             # unit: extraction, completion logic on a fake chat page, queue, session, summaries, viewer
+npm test                                             # unit: extraction, completion logic on a fake chat page, queue, session, summaries, viewer, code export, review, sandbox
 node --test dist-test/test/live/offline.test.js      # real server + real site, empty profile: stdout hygiene, LOGGED_OUT
 npm run test:live                                    # full suite; needs a login, correct selectors, and a logged-in claude CLI
 npm run smoke                                        # one PONG round trip without MCP (prints the raw reply to your terminal)
