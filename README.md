@@ -131,15 +131,25 @@ Sends are queued and run one at a time, so concurrent calls never mix their prom
 
 ### When a reply counts as finished
 
-Text that is still arriving always keeps the wait open. That means the typing placeholder before the reply starts,
-or the reply's markdown flagged as streaming. Text pauses never end the wait while either is showing.
+Text that is still arriving keeps the wait open. That means the typing placeholder before the reply has any text,
+or the reply's own markdown flagged as streaming. Text pauses don't end the wait while either is showing. Streaming
+flags on older replies are ignored.
 
-Once the text stops, it has to hold still for 750 ms. Muse's agent can keep its Stop or "Stop task" controls up for
-minutes after the text is done, so the bridge doesn't wait for them. While they're showing, it waits a longer 5 s
-(enough to catch follow-up messages added to the same reply), then returns `done` with `agent_busy: true` and a note
-that more may follow. Check back with `muse_read_latest`.
+Once the text stops, the bridge waits until nothing is showing (no Stop, no "Stop task", no typing placeholder) and
+the text has held still, both for 750 ms. Muse's agent can keep working for minutes after the text is done. While
+it does, Muse shows Stop, "Stop task", or the typing placeholder again (for example while it runs a tool). The bridge
+doesn't wait for that work to finish. Once the text has held still for 5 s, it returns `done` with
+`agent_busy: true` and a note that more may follow. The 5 s is enough to catch follow-up messages added to the same
+reply soon after. Check back with `muse_read_latest`.
+
+If the reply's markdown stays flagged as streaming but its text hasn't changed for 60 s, the bridge treats the flag
+as stuck. It returns the text with a `warning` that it may be incomplete.
 
 If no streaming signal is ever seen, the bridge falls back to "text unchanged for 3 s" and adds a `warning`.
+
+Every finished reply is logged with which signals were showing, the text length and how long the text had held
+still. Logs never contain the text itself. A `TIMEOUT` logs the same details and takes a debug screenshot before
+clicking Stop. The screenshot's path is included in the error.
 
 ### Muse remembers across threads
 

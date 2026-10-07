@@ -18,8 +18,11 @@ const defaults = {
   // Shown while Muse's agent runs a background task. It can outlive the reply by minutes, so it only lengthens the
   // settle window (to catch follow-up messages) and is never clicked.
   agentTaskButton: 'button[aria-label="Stop task"]',
-  // Typing placeholder before the reply starts, then the streaming flag on the reply's markdown body.
-  streamingMarker: '[data-testid="hatch-chat-typing-indicator"], [data-hatch-markdown-streaming="true"]',
+  // A standalone role=status item at the end of the log, not part of any reply. It shows before the reply starts,
+  // and again while the agent works after the text is done (seen next to "Stop task").
+  typingIndicator: '[data-testid="hatch-chat-typing-indicator"]',
+  // The streaming flag on a reply's markdown body. Only checked inside the reply's own messages.
+  markdownStreaming: '[data-hatch-markdown-streaming="true"]',
   userTurn: '[data-message-item="true"][data-message-role="user"]',
   // One reply may span several of these; they share data-message-turn-id (see TURN_ID_ATTR).
   assistantTurn: '[data-message-item="true"][data-message-role="assistant"]',

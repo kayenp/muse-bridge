@@ -1,4 +1,5 @@
 import type { Locator, Page } from "playwright";
+import { screenshot } from "./browser.js";
 import { BridgeError, detectError, errorBaseline } from "./errors.js";
 import { extractTurnText, type ExtractOptions } from "./extract.js";
 import { log } from "./log.js";
@@ -19,11 +20,15 @@ const NO_INDICATOR_MS = 5000;
 const FALLBACK_STABLE_MS = 3000;
 /** Indicator came and went but no reply appeared for this long: the reply was stopped or dropped. */
 const NO_REPLY_MS = 5000;
+/** The reply's text has not changed for this long while still flagged as streaming: the flag is stuck. */
+const STALL_MS = 60_000;
 
 export interface SendOptions {
   timeoutMs: number;
   includeReasoning: boolean;
   onProgress?: (text: string) => void;
+  /** Overrides STALL_MS (for tests). */
+  stallMs?: number;
 }
 
 export interface SendOutcome {
@@ -64,15 +69,25 @@ export async function extractReply(page: Page, anchor: Locator, includeReasoning
   return texts.join("\n\n");
 }
 
-/** Reply text is still arriving: the typing placeholder, or the markdown body flagged as streaming. */
-async function textStreaming(page: Page): Promise<boolean> {
-  return isVisible(page, "streamingMarker");
+/** The page signals read on each poll. `markdown` is checked only inside the reply's own messages. */
+interface Signals {
+  typing: boolean;
+  markdown: boolean;
+  stop: boolean;
+  task: boolean;
 }
 
-/** Muse's agent is still working: the composer Stop or a running task. */
-async function agentBusy(page: Page): Promise<boolean> {
-  return (await isVisible(page, "stopButton")) || (await isVisible(page, "agentTaskButton"));
+async function readSignals(page: Page, parts: Locator | null): Promise<Signals> {
+  return {
+    typing: await isVisible(page, "typingIndicator"),
+    markdown: parts ? await parts.locator(sel.markdownStreaming).first().isVisible().catch(() => false) : false,
+    stop: await isVisible(page, "stopButton"),
+    task: await isVisible(page, "agentTaskButton"),
+  };
 }
+
+/** Names of the signals that are on, for logs (never page text). */
+const signalsOn = (s: Signals) => (Object.keys(s) as (keyof Signals)[]).filter((k) => s[k]);
 
 /** Type the prompt into the (likely contenteditable) input without letting newlines submit early. */
 async function typePrompt(page: Page, prompt: string): Promise<void> {
@@ -86,13 +101,19 @@ async function typePrompt(page: Page, prompt: string): Promise<void> {
 /**
  * Send a prompt and wait for the reply to finish.
  *
- * "Finished" = a reply exists, its text is no longer streaming (no typing placeholder, no streaming flag), and
- * the text has held still for SETTLE_MS, or for AGENT_SETTLE_MS if the agent is still busy. In that case
- * the result carries agentBusy. Text stability never ends the wait while text is streaming, so thinking pauses
- * don't cause early returns. Errors that appear mid-reply end the wait immediately with the partial text.
+ * "Finished" = a reply has text, it is no longer streaming (its markdown isn't flagged as streaming), and:
+ *  - nothing shows the agent working (Stop, Stop task, typing placeholder) and the text has held still, both for
+ *    SETTLE_MS; or
+ *  - the agent is still working but the text has held still for AGENT_SETTLE_MS. The result carries agentBusy.
+ * The typing placeholder counts as streaming only before the reply has text; after that Muse shows it while the
+ * agent works (e.g. runs a tool), which can last minutes. Text stability never ends the wait while the text is
+ * streaming, so thinking pauses don't cause early returns, unless the text has been static for STALL_MS (a stuck
+ * flag). Errors that appear mid-reply end the wait immediately with the partial text.
  */
 export async function sendAndWait(page: Page, prompt: string, opts: SendOptions): Promise<SendOutcome> {
-  const deadline = Date.now() + opts.timeoutMs;
+  const startedAt = Date.now();
+  const deadline = startedAt + opts.timeoutMs;
+  const stallMs = opts.stallMs ?? STALL_MS;
   const baseAssistant = await count(page, "assistantTurn");
   const baseUser = await count(page, "userTurn");
   const errBase = await errorBaseline(page);
@@ -115,28 +136,37 @@ export async function sendAndWait(page: Page, prompt: string, opts: SendOptions)
   }
 
   let turn: Locator | null = null;
+  let parts: Locator | null = null;
   let turnSeenAt = 0;
   let indicatorGoneAt: number | null = null;
   let seenIndicator = false;
   let text = "";
   let lastChange = Date.now();
+  /** Since when the text has not been streaming. */
   let quietSince: number | null = null;
+  /** Since when nothing at all has been on: not streaming and the agent not busy. */
+  let idleSince: number | null = null;
 
   const partial = (code: BridgeError["code"], message: string, extra: Record<string, unknown> = {}) =>
     new BridgeError(code, message, { partial: true, text, ...extra });
+  const finish = (decision: string, sig: Signals, out: SendOutcome): SendOutcome => {
+    const now = Date.now();
+    log.info(
+      { decision, signals: signalsOn(sig), text_chars: text.length, stable_ms: now - lastChange, elapsed_ms: now - startedAt },
+      "reply finished",
+    );
+    return out;
+  };
 
   for (;;) {
     if (quickLoggedOut(page)) throw partial("LOGGED_OUT", "Session ended while waiting for the reply");
-
-    const isStreaming = await textStreaming(page);
-    const busy = await agentBusy(page);
-    if (isStreaming || busy) seenIndicator = true;
 
     if (!turn && (await count(page, "assistantTurn")) > baseAssistant) {
       // Pin the reply's first message by its turn id, so later messages in other turns can't be picked up.
       const first = page.locator(sel.assistantTurn).nth(baseAssistant);
       const id = await first.getAttribute(TURN_ID_ATTR).catch(() => null);
-      turn = id ? turnParts(page, id).first() : first;
+      parts = id ? turnParts(page, id) : first;
+      turn = parts.first();
       turnSeenAt = Date.now();
     }
 
@@ -153,40 +183,61 @@ export async function sendAndWait(page: Page, prompt: string, opts: SendOptions)
     const err = await detectError(page, errBase, turn);
     if (err) throw partial(err.code, err.message);
 
+    const sig = await readSignals(page, parts);
+    const hasText = text.trim() !== "";
+    const streaming = sig.markdown || (sig.typing && !hasText);
+    const busy = sig.stop || sig.task || (sig.typing && hasText);
+    if (streaming || busy) seenIndicator = true;
+
     const now = Date.now();
     if (now >= deadline) {
-      if (isStreaming || busy) {
+      log.warn(
+        { signals: signalsOn(sig), text_chars: text.length, stable_ms: now - lastChange, turn_found: !!turn },
+        "reply timed out",
+      );
+      // Before clicking Stop, so the screenshot shows what kept the wait open.
+      const shot = await screenshot("timeout");
+      if (streaming || busy) {
         // Only the composer Stop: stopping an agent task is a bigger step than ending this reply.
         const stop = page.locator(sel.stopButton).first();
         await stop.click({ timeout: 2000 }).catch(() => {});
       }
-      throw partial("TIMEOUT", `Reply not finished after ${Math.round(opts.timeoutMs / 1000)} s`);
+      throw partial("TIMEOUT", `Reply not finished after ${Math.round(opts.timeoutMs / 1000)} s`, {
+        ...(shot ? { screenshot: shot } : {}),
+      });
     }
 
     if (!turn && seenIndicator) {
-      indicatorGoneAt = isStreaming || busy ? null : (indicatorGoneAt ?? now);
+      indicatorGoneAt = streaming || busy ? null : (indicatorGoneAt ?? now);
       if (indicatorGoneAt && now - indicatorGoneAt >= NO_REPLY_MS) {
         throw partial("NO_REPLY", "Muse stopped without replying (the reply was stopped or dropped)");
       }
     }
 
-    if (turn) {
+    if (turn && hasText) {
+      const stable = now - lastChange;
       if (seenIndicator) {
-        if (isStreaming) {
-          quietSince = null;
-        } else {
-          quietSince ??= now;
-          const settle = busy ? AGENT_SETTLE_MS : SETTLE_MS;
-          if (now - quietSince >= settle && now - lastChange >= settle && text) {
-            return busy ? { text, agentBusy: true } : { text };
-          }
+        quietSince = streaming ? null : (quietSince ?? now);
+        idleSince = streaming || busy ? null : (idleSince ?? now);
+        if (idleSince !== null && now - idleSince >= SETTLE_MS && stable >= SETTLE_MS) {
+          return finish("settled", sig, { text });
         }
-      } else if (now - turnSeenAt >= NO_INDICATOR_MS && now - lastChange >= FALLBACK_STABLE_MS && text) {
-        log.warn("reply finished without a visible streaming indicator; stopButton/streamingMarker may be stale");
-        return {
+        if (busy && quietSince !== null && now - quietSince >= AGENT_SETTLE_MS && stable >= AGENT_SETTLE_MS) {
+          return finish("agent_busy", sig, { text, agentBusy: true });
+        }
+        if (streaming && stable >= stallMs) {
+          return finish("stalled", sig, {
+            text,
+            ...(busy ? { agentBusy: true } : {}),
+            warning: `The reply still looked like it was streaming, but its text had not changed for ${Math.round(stallMs / 1000)} s. It may be incomplete.`,
+          });
+        }
+      } else if (now - turnSeenAt >= NO_INDICATOR_MS && stable >= FALLBACK_STABLE_MS) {
+        log.warn("reply finished without a visible streaming indicator; stopButton/typingIndicator may be stale");
+        return finish("no_indicator", sig, {
           text,
           warning: "No streaming indicator was seen; completion was judged by text stability. Check stopButton.",
-        };
+        });
       }
     }
 

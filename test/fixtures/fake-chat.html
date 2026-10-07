@@ -44,6 +44,8 @@
     d.setAttribute("data-testid", "hatch-chat-typing-indicator");
     d.setAttribute("role", "status");
     d.setAttribute("aria-label", "Assistant is typing");
+    // The real one shows animated dots; it needs a size to count as visible.
+    d.innerHTML = '<span style="display:inline-block;width:24px;height:8px"></span>';
     log.appendChild(d);
     return d;
   }
@@ -109,6 +111,41 @@
       stopWrap.remove();
       await sleep(30000);
       task.remove();
+    }
+    if (s === "typingAfterText") {
+      // Seen live: the text is done, then the typing placeholder comes back while the agent works (e.g. runs a
+      // tool) and stays up for minutes, sometimes going away with no new message.
+      await stream(a, ["answer"], 50);
+      stopWrap.remove();
+      const t = typing();
+      await sleep(30000);
+      t.remove();
+    }
+    if (s === "toolGap") {
+      // A tool call between two parts of one reply: placeholder plus Stop for a few seconds, then part two.
+      await stream(a, ["part", "one"], 50);
+      const t = typing();
+      await sleep(3000);
+      t.remove();
+      const b = assistantMsg(turnId);
+      await stream(b, ["part", "two"], 50);
+    }
+    if (s === "stopFlicker") {
+      // The composer Stop drops out briefly between two parts of a reply.
+      await stream(a, ["first"], 50);
+      stopWrap.remove();
+      await sleep(300);
+      actions.appendChild(stopWrap);
+      await sleep(1500);
+      const b = assistantMsg(turnId);
+      await stream(b, ["second"], 50);
+    }
+    if (s === "stuckStreaming") {
+      // The text is done but the markdown keeps its streaming flag.
+      await stream(a, ["stuck", "reply"], 50);
+      a.querySelector("[data-hatch-markdown-streaming]").setAttribute("data-hatch-markdown-streaming", "true");
+      stopWrap.remove();
+      await sleep(30000);
     }
     if (s === "slow") await stream(a, Array.from({ length: 200 }, (_, i) => "w" + i), 100);
     if (s === "error") {
