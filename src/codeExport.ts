@@ -226,6 +226,20 @@ export function pageCodeBlocks(
 ): { blocks: { language: string; code: string }[]; nested: boolean } {
   const blocks: { language: string; code: string }[] = [];
   let nested = false;
+  /**
+   * Text of a code element with its line breaks. Muse (Shiki via streamdown) renders each line as its own
+   * display:block <span> with no newline characters between them, so textContent runs the lines together.
+   * When the code's own text nodes carry no newline and all its content is in child elements, each child is a
+   * line. Highlighters that put real newlines between tokens keep their textContent.
+   * Kept identical to codeLines() in extract.ts: both run inside the page, so they can't share code.
+   */
+  const codeLines = (code: Element): string => {
+    const own = Array.from(code.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent ?? "");
+    const kids = Array.from(code.children);
+    const lineMode = kids.length > 1 && !own.some((t) => t.includes("\n") || t.trim() !== "");
+    const text = lineMode ? kids.map((k) => (k.textContent ?? "").replace(/\n$/, "")).join("\n") : (code.textContent ?? "");
+    return text.replace(/\n$/, "");
+  };
   for (const el of els) {
     for (const pre of Array.from(el.querySelectorAll("pre"))) {
       if (pre.closest(o.reasoning)) continue;
@@ -236,10 +250,10 @@ export function pageCodeBlocks(
       const clone = pre.cloneNode(true) as HTMLElement;
       clone.querySelectorAll(o.strip).forEach((n) => n.remove());
       const code = clone.querySelector("code") ?? clone;
-      const langClass = Array.from(code.classList).find((c) => c.startsWith("language-"));
+      const langClass = [...Array.from(code.classList), ...Array.from(pre.classList)].find((c) => c.startsWith("language-"));
       const language =
         pre.closest("[data-language]")?.getAttribute("data-language") ?? (langClass ? langClass.slice(9) : "");
-      blocks.push({ language, code: (code.textContent ?? "").replace(/\n$/, "") });
+      blocks.push({ language, code: codeLines(code) });
     }
   }
   return { blocks, nested };

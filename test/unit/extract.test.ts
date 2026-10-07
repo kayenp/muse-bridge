@@ -61,3 +61,28 @@ test("real muse.ai markup: user and assistant messages come out clean", async ()
   // Page UI: action buttons, accessibility labels, code-block header and its copy/download buttons.
   assert.doesNotMatch(reply, /Copy|React|Reply|Download|Assistant message:|^python$/m);
 });
+
+// The live Muse structure (2026-10-07): one display:block span per line, no newline characters between them,
+// a blank line as a span holding just "\n", line numbers from CSS counters (not in the DOM).
+const MUSE_CODE =
+  `<pre class="language-python"><code>` +
+  `<span class="block"><span>#</span><span> path: src/t.py</span></span>` +
+  `<span class="block"><span>import</span><span> math</span></span>` +
+  `<span class="block">\n</span>` +
+  `<span class="block"><span>def</span><span> f</span><span>():</span></span>` +
+  `<span class="block"><span>    return</span><span> 1</span></span>` +
+  `</code></pre>`;
+const MUSE_EXPECTED = "# path: src/t.py\nimport math\n\ndef f():\n    return 1";
+
+test("keeps line breaks in Muse's one-span-per-line code blocks", async () => {
+  const t = await turn(MUSE_CODE);
+  assert.equal(await extractTurn(t), "```python\n" + MUSE_EXPECTED + "\n```");
+});
+
+test("leaves highlighters that already have newlines between tokens alone", async () => {
+  const t = await turn(`<pre><code class="language-js"><span>const</span> a = 1;\n<span>let</span> b;\n</code></pre>`);
+  assert.equal(await extractTurn(t), "```js\nconst a = 1;\nlet b;\n```");
+  const lines = await turn(`<pre><code class="language-js"><span class="line">a</span>\n<span class="line">b</span></code></pre>`);
+  assert.equal(await extractTurn(lines), "```js\na\nb\n```");
+});
+

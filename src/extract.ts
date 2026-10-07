@@ -31,13 +31,28 @@ export function extractTurnText(el: Element, o: ExtractOptions): string {
     }
   });
 
+  /**
+   * Text of a code element with its line breaks. Muse (Shiki via streamdown) renders each line as its own
+   * display:block <span> with no newline characters between them, so textContent runs the lines together.
+   * When the code's own text nodes carry no newline and all its content is in child elements, each child is a
+   * line. Highlighters that put real newlines between tokens keep their textContent.
+   * Kept identical to codeLines() in codeExport.ts: both run inside the page, so they can't share code.
+   */
+  const codeLines = (code: Element): string => {
+    const own = Array.from(code.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent ?? "");
+    const kids = Array.from(code.children);
+    const lineMode = kids.length > 1 && !own.some((t) => t.includes("\n") || t.trim() !== "");
+    const text = lineMode ? kids.map((k) => (k.textContent ?? "").replace(/\n$/, "")).join("\n") : (code.textContent ?? "");
+    return text.replace(/\n$/, "");
+  };
+
   // Code blocks -> fenced markdown. A <pre> holds whitespace exactly, so innerText keeps it.
   clone.querySelectorAll("pre").forEach((pre) => {
     const code = pre.querySelector("code") ?? pre;
-    const langClass = Array.from(code.classList).find((c) => c.startsWith("language-"));
+    const langClass = [...Array.from(code.classList), ...Array.from(pre.classList)].find((c) => c.startsWith("language-"));
     const label =
       pre.closest("[data-language]")?.getAttribute("data-language") ?? (langClass ? langClass.slice(9) : "");
-    const body = (code.textContent ?? "").replace(/\n$/, "");
+    const body = codeLines(code);
     const fenced = doc.createElement("pre");
     fenced.textContent = "```" + label + "\n" + body + "\n```";
     pre.replaceWith(fenced);

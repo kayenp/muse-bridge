@@ -138,3 +138,24 @@ test("refuses nested code blocks and replies that aren't fully on the page", asy
   await assert.rejects(readCodeBlocks(page, ["n1", "gone"]), (e) => code(e) === "REPLY_NOT_ON_PAGE");
   await assert.rejects(readCodeBlocks(page, []), (e) => code(e) === "REPLY_NOT_ON_PAGE");
 });
+
+// The live Muse structure (2026-10-07): see extract.test.ts.
+const MUSE_CODE =
+  `<pre class="language-python"><code>` +
+  `<span class="block"><span>#</span><span> path: src/t.py</span></span>` +
+  `<span class="block"><span>import</span><span> math</span></span>` +
+  `<span class="block">\n</span>` +
+  `<span class="block"><span>def</span><span> f</span><span>():</span></span>` +
+  `<span class="block"><span>    return</span><span> 1</span></span>` +
+  `</code></pre>`;
+const MUSE_EXPECTED = "# path: src/t.py\nimport math\n\ndef f():\n    return 1";
+
+test("exports Muse's one-span-per-line code with its line breaks, and a correct suggested path", async () => {
+  await load(page, msg("m1", MUSE_CODE));
+  const blocks = await readCodeBlocks(page, ["m1"]);
+  assert.deepEqual(blocks, [{ language: "python", code: MUSE_EXPECTED }]);
+  const plan = planExport(blocks);
+  assert.equal(plan.files[0].lines, 5);
+  assert.equal(plan.files[0].suggested_path, "src/t.py");
+});
+
