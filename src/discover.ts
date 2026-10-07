@@ -4,17 +4,19 @@
 // Snapshots are taken automatically when something interesting changes: a message is added, streaming
 // starts or stops, text is typed in the composer, or a menu/dialog opens. You can also type a label in the
 // terminal and press Enter for a manual one. Close the browser window (or type 'q') to finish.
-// Everything stays local under ~/.muse-bridge/discovery/ (owner-only), and may include your chat content.
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+// Everything stays local under ~/.muse-bridge/discovery/ (owner-only files), and may include your chat content
+// and session data. Strip it down (as test/fixtures/muse-real-turns.html was) before reusing any of it elsewhere.
+import { appendFileSync, chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { closeBrowser, getPage } from "./browser.js";
-import { config } from "./config.js";
+import { config, ensureDirs, PRIVATE_FILE_MODE } from "./config.js";
 
 const say = (msg: string) => console.error(msg);
 const dir = `${config.discoveryDir}/${new Date().toISOString().replace(/[:.]/g, "-")}`;
-mkdirSync(dir, { recursive: true });
+ensureDirs();
+mkdirSync(dir, { recursive: true, mode: 0o700 });
 const append = (file: string, o: Record<string, unknown>) =>
-  appendFileSync(`${dir}/${file}`, JSON.stringify({ t: Date.now(), ...o }) + "\n");
+  appendFileSync(`${dir}/${file}`, JSON.stringify({ t: Date.now(), ...o }) + "\n", { mode: PRIVATE_FILE_MODE });
 const rec = (o: Record<string, unknown>) => append("network.jsonl", o);
 
 const page = await getPage("headed");
@@ -44,8 +46,9 @@ async function snapshot(label: string) {
   try {
     n++;
     const base = `${dir}/${String(n).padStart(3, "0")}-${label.replace(/\W+/g, "_") || "snap"}`;
-    writeFileSync(`${base}.html`, await page.content());
+    writeFileSync(`${base}.html`, await page.content(), { mode: PRIVATE_FILE_MODE });
     await page.screenshot({ path: `${base}.png` });
+    chmodSync(`${base}.png`, PRIVATE_FILE_MODE);
     rec({ kind: "snapshot", file: base, label });
     say(`snapshot ${n}: ${label}`);
   } catch {

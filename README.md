@@ -16,6 +16,19 @@ Logging in to Muse goes through facebook.com, so `~/.muse-bridge/profile` ends u
 **Facebook** session. The bridge creates the folder with mode `700` (owner only). Treat it like a password.
 Don't copy it, sync it, or put it in git. To sign out completely, delete the folder.
 
+Other protections, since the same browser carries both sessions:
+
+- Every folder under `~/.muse-bridge` is `700`, and the files the bridge writes there (`bridge.log`, debug
+  screenshots, discovery dumps) are `600`.
+- Never set `MUSE_HOME` to a folder inside a git repo. `.gitignore` covers the usual names as a backstop.
+- `MUSE_URL` must be `https` and must not point at facebook.com. The bridge refuses to start otherwise.
+- Chromium gets only the environment variables it needs (display, locale, fonts, temp dirs), not API keys or
+  tokens from your shell.
+- Debug screenshots are skipped on login pages, and only the newest 20 are kept.
+- `npm run discover` saves raw logged-in pages and network traffic. Strip them before reusing them as fixtures.
+- Logs never contain URLs, cookies, headers or chat text. stderr also ends up in the MCP client's logs, so
+  keep it that way when adding log calls.
+
 The bridge always uses this separate profile and never connects to your everyday Chrome.
 
 ## Setup
@@ -135,7 +148,7 @@ MUSE_SELECTOR_OVERRIDES='{"stopButton":"button[aria-label=\"Stop\"]"}'
 | `MUSE_CHROMIUM_PATH` | `~/applications/ungoogled-chromium-148/opt/ungoogled-chromium/chrome` | Chromium binary to drive. |
 | `MUSE_HOME` | `~/.muse-bridge` | Profile, logs (`bridge.log`), debug screenshots, discovery output. |
 | `MUSE_SELECTOR_OVERRIDES` | — | JSON map of selector key to CSS. |
-| `MUSE_URL` | `https://muse.ai/` | |
+| `MUSE_URL` | `https://muse.ai/` | Must be `https`. Facebook hosts are rejected. |
 | `MUSE_LOG_LEVEL` | `info` | Logs go to stderr and `bridge.log`, never stdout. |
 
 xvfb mode is the default rather than headless because Meta flagging the browser as a bot could also affect the
