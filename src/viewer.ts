@@ -16,7 +16,7 @@ import { log } from "./log.js";
  * reading that file and fetching the page on purpose.
  */
 
-export type EntryKind = "send" | "latest" | "transcript" | "error";
+export type EntryKind = "send" | "latest" | "transcript" | "error" | "export";
 export type SummaryState = "waiting" | "running" | "done" | "failed";
 
 export interface Entry {
@@ -177,7 +177,7 @@ const list = document.getElementById("list");
 const tpl = document.getElementById("entry-tpl");
 const conn = document.getElementById("conn");
 const nodes = new Map();
-const KIND = { send: "Send", latest: "Read latest", transcript: "Transcript", error: "Error" };
+const KIND = { send: "Send", latest: "Read latest", transcript: "Transcript", error: "Error", export: "Code export" };
 const STATE = { waiting: "Waiting for reply", running: "Summarizing…", done: "Summarized", failed: "Summary failed" };
 
 function render(e) {
@@ -187,7 +187,7 @@ function render(e) {
     nodes.set(e.id, el);
     list.prepend(el);
   }
-  el.querySelector(".kind").textContent = KIND[e.kind] || e.kind;
+  el.querySelector(".kind").textContent = (KIND[e.kind] || e.kind) + " #" + e.id;
   const t = el.querySelector("time");
   t.textContent = new Date(e.at).toLocaleTimeString();
   t.dateTime = new Date(e.at).toISOString();

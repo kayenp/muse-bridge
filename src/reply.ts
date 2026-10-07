@@ -49,6 +49,8 @@ export interface SendOutcome {
   warning?: string;
   /** Muse's agent was still working when the text settled; later messages may follow. */
   agentBusy?: boolean;
+  /** Muse's message ids for this reply, in page order. Kept inside the bridge (see replies.ts). */
+  messageIds?: string[];
 }
 
 function extractOpts(includeReasoning: boolean): ExtractOptions {
@@ -82,6 +84,16 @@ export async function extractReply(page: Page, anchor: Locator, includeReasoning
   const turnId = await anchor.getAttribute(TURN_ID_ATTR).catch(() => null);
   if (!turnId) return extractTurn(anchor, includeReasoning);
   return extractParts(turnParts(page, turnId), includeReasoning);
+}
+
+/** Message ids of the last reply on the page: every assistant message sharing the last one's turn id. */
+export async function latestReplyIds(page: Page): Promise<string[]> {
+  const last = page.locator(sel.assistantTurn).last();
+  const turnId = await last.getAttribute(TURN_ID_ATTR).catch(() => null);
+  const parts = turnId ? turnParts(page, turnId) : last;
+  return parts
+    .evaluateAll((els, attr) => els.map((e) => e.getAttribute(attr) ?? "").filter(Boolean), MESSAGE_ID_ATTR)
+    .catch(() => []);
 }
 
 /** Lowercase letters and digits only, so markdown rendering, line breaks and truncation marks don't matter. */
@@ -269,7 +281,7 @@ export async function sendAndWait(page: Page, prompt: string, opts: SendOptions)
       { decision, signals: signalsOn(sig), reply_parts: ids.length, text_chars: text.length, stable_ms: now - lastChange, elapsed_ms: now - startedAt },
       "reply finished",
     );
-    return out;
+    return { ...out, messageIds: [...ids] };
   };
 
   for (;;) {
