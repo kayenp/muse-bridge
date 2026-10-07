@@ -36,7 +36,7 @@ export type JobStatus = "queued" | "running" | "done" | "error";
 
 export interface JobResult {
   status: "done" | "error";
-  text: string;
+  text?: string;
   partial?: boolean;
   error?: string;
   message?: string;

@@ -13,6 +13,7 @@ export type ErrorCode =
   | "SELECTOR_MISSING"
   | "TIMEOUT"
   | "PROFILE_IN_USE"
+  | "SUMMARY_FAILED"
   | "INTERNAL";
 
 export class BridgeError extends Error {

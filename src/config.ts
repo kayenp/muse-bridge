@@ -32,6 +32,15 @@ export const config = {
     process.env.MUSE_CHROMIUM_PATH ??
     join(homedir(), "applications/ungoogled-chromium-148/opt/ungoogled-chromium/chrome"),
   logLevel: process.env.MUSE_LOG_LEVEL ?? "info",
+  /** `claude` CLI that summarizes Muse replies, and the model it uses. */
+  claudePath: process.env.MUSE_CLAUDE_PATH ?? "claude",
+  summaryModel: process.env.MUSE_SUMMARY_MODEL ?? "claude-opus-5-5",
+  /** Empty working dir for the summarizer, so it picks up no CLAUDE.md or project memory. */
+  summarizerDir: join(home, "summarizer"),
+  /** Local raw-vs-summary viewer. 0 picks a free port; the URL (with its token) is written to viewerUrlFile. */
+  viewerPort: Number(process.env.MUSE_VIEWER_PORT ?? 7391),
+  viewerUrlFile: join(home, "viewer-url"),
+  viewerTokenFile: join(home, "viewer-token"),
 };
 
 /** Owner-only mode for files the bridge writes (logs, screenshots, page dumps). */
@@ -43,7 +52,7 @@ export const PRIVATE_FILE_MODE = 0o600;
  * re-parented dir doesn't silently become readable.
  */
 export function ensureDirs(): void {
-  for (const dir of [config.home, config.profileDir, config.debugDir, config.discoveryDir]) {
+  for (const dir of [config.home, config.profileDir, config.debugDir, config.discoveryDir, config.summarizerDir]) {
     mkdirSync(dir, { recursive: true });
     chmodSync(dir, 0o700);
   }
